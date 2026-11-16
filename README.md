@@ -8,16 +8,17 @@ PDF・Office 文書・画像などを追加すると、日本語で質問した�
 
 **Windows x64、64 ビット版 Python 3.12、モデル用の空き容量約 5.8 GB** が必要です。初回は依存ライブラリとモデルの取得にインターネット接続を使います。
 
-[ソース ZIP をダウンロード](https://github.com/kazukiminemura/Yomiquill/archive/refs/heads/main.zip)して展開し、`desktop.py` があるフォルダーで PowerShell を開きます。
+1. [64 ビット版 Python 3.12](https://www.python.org/downloads/windows/) を用意します。インストール時は Python Launcher（`py`）も有効にします。
+2. 次のコマンドでクローンするか、[ソース ZIP](https://github.com/kazukiminemura/Yomiquill/archive/refs/heads/main.zip) を展開します。
+3. フォルダー内の **`Start-Yomiquill.cmd`** をダブルクリックします。初回は仮想環境・ライブラリ・モデルを準備してからアプリを開きます。
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt huggingface-hub
-.\.venv\Scripts\python.exe setup_models.py
-.\.venv\Scripts\python.exe desktop.py
+git clone https://github.com/kazukiminemura/Yomiquill.git
+cd Yomiquill
+.\Start-Yomiquill.cmd
 ```
 
-2 回目以降は、同じフォルダーで最後の起動コマンドを実行します。
+2 回目以降も同じファイルで起動します。準備済みのライブラリやモデルを再利用します。初回の準備が中断した場合は、同じファイルをもう一度実行してください。起動せず準備だけ行うには `.\Start-Yomiquill.cmd --setup-only` を使えます。
 
 ## 資料追加から根拠レポート保存まで
 
