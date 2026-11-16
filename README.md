@@ -1,66 +1,65 @@
 # Yomiquill（ヨミクイル）
 
-資料から引用付きの回答や要約を作り、根拠をあとから原本と照合できる、Windows x64向けの日本語デスクトップアプリです。
-PythonとPySide6で画面を構成し、検索用の埋め込みと文章生成をOpenVINO GenAIで実行します。
+**手元の資料を読み、回答の根拠を原本までたどれる Windows アプリです。**
 
-回答の「根拠レポートを保存」から、質問・回答・引用位置・抽出本文・原本のSHA-256を一つのHTMLに保存できます。受け取った側はアプリやアカウントなしでHTMLを開き、手元の原本を `Get-FileHash -Algorithm SHA256 -LiteralPath '資料.pdf'` で照合できます。ハッシュが一致すればファイルの内容は同一です。回答が原文に沿っているかは、掲載された箇所を参照して確認してください。
+PDF・Office 文書・画像などを追加すると、日本語で質問したり要約したりできます。モデルの取得後は OCR・検索・回答生成を PC 上で実行できます。
 
-## 初回セットアップ
+## はじめる
 
-64ビット版のPython 3.12を用意し、このディレクトリでPowerShellを開きます。
+**Windows x64、64 ビット版 Python 3.12、モデル用の空き容量約 5.8 GB** が必要です。初回は依存ライブラリとモデルの取得にインターネット接続を使います。
+
+[ソース ZIP をダウンロード](https://github.com/kazukiminemura/Yomiquill/archive/refs/heads/main.zip)して展開し、`desktop.py` があるフォルダーで PowerShell を開きます。
 
 ```powershell
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install huggingface-hub
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt huggingface-hub
 .\.venv\Scripts\python.exe setup_models.py
-```
-
-初回は本文・検索・画像のモデルを合計約 5.8 GB 取得します。本文・検索モデルがある場合は、同じ手順で画像モデルを追加できます。モデル取得後はオフラインで使えます。
-公開用ソースZIPを展開した場合や、リポジトリを取得した場合は、ソースフォルダーで続けて次のコマンドを実行します。
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 .\.venv\Scripts\python.exe desktop.py
 ```
 
-モデルを手動で準備する場合は、[回答モデル](https://huggingface.co/OpenVINO/Qwen3-4B-int4-ov) を `models\chat`、
-[検索モデル](https://huggingface.co/OpenVINO/Qwen3-Embedding-0.6B-int4-cw-ov) を `models\embedding`、
-[画像モデル](https://huggingface.co/OpenVINO/Qwen3-VL-4B-Instruct-int4-ov) を `models\vision` に置きます。
-Microsoft Store 版 Python が保存した既存のノートブックは、配布版からも開けます。
+2 回目以降は、同じフォルダーで最後の起動コマンドを実行します。
 
-## 使い方
+## 資料を追加して使う
 
-1. 左側でノートブックを作成します。
-2. ウィンドウにファイルをドラッグ＆ドロップするか、右側の「ファイルを追加」から選びます。複数選択できます。質問に使う資料をチェックします。
-3. 中央で質問を送ります。回答下の引用番号を押すと右側に原文と位置が表示されます。
-4. 右側で資料を選択して「選択中の資料を要約」を押すか、チャットに「要約して」と入力します。
+1. 左側でノートブックを作ります。
+2. ファイルをウィンドウへドロップするか、右側の「ファイルを追加」から選びます。複数選択できます。
+3. 質問に使う資料をチェックし、中央から送信します。回答の引用番号を押すと、右側に抽出した本文と位置が表示されます。
+4. 要約するには、資料を選んで「選択中の資料を要約」を押すか、チャットに「要約して」と入力します。
 
-本文を検索・要約できるのは、テキストを選択できる PDF、Word（.docx）、Excel（.xlsx）、PowerPoint（.pptx）、UTF-8 テキストなどです。BOM 付きの UTF-16/32 と、TXT・CSV などの Windows 日本語テキストにも対応します。
-画像だけの PDF は、Windows にインストール済みの OCR 言語を使って読み取ります。読み取り結果はプレビューで確認できます。
-PNG・JPEG などの画像は、画像モデルで見た目や読める文字を説明できます。以前に添付した画像やスキャン PDF も、そのまま選択して要約できます。
-動画など解析対象外の形式は添付ファイルとして保管されます。原本は「元ファイルを保存」から取り出せます。
-データベースとモデルの保存先は、旧版との互換性のため `%LOCALAPPDATA%\NotebookForAIPC` です。
-既定ではOpenVINOがIntel GPUを優先し、初期化または推論に失敗したモデルはCPUで再試行します。
-CPUに固定する場合は、PowerShellで `$env:NOTEBOOK_DEVICE = 'CPU'` を設定してから起動します。
-Intel NPUを資料検索に使う場合は、起動前に `$env:NOTEBOOK_DEVICE = 'NPU'` を設定してください。
-NPUを利用できない場合、検索はGPU、次にCPUを試します。引用付き回答と要約の生成にはGPUまたはCPUを使用します。
-NPUでの最初の検索や取り込みでは、モデルの準備に時間がかかる場合があります。画面下部に実際に使ったデバイスを表示します。
+取り込み・要約・回答の進捗は中央の会話欄に表示されます。回答や要約の途中でも資料を追加でき、追加分は次の質問から使えます。
 
-## テストと公開用ソース
+| 資料 | できること |
+| --- | --- |
+| テキスト PDF、Word（.docx）、Excel（.xlsx）、PowerPoint（.pptx）、テキスト、CSV | 本文のプレビュー、質問、要約 |
+| スキャン PDF | Windows の OCR で文字を読み取り、本文をプレビュー、質問、要約 |
+| PNG・JPEG・WebP などの画像 | 画像モデルで見た目や読める文字を説明 |
+| 動画など解析対象外のファイル | 添付として保管 |
+
+原本は「元ファイルを保存」から取り出せます。スキャン PDF の読み取り精度は画像の鮮明さと、Windows にインストールされている OCR 言語に左右されます。
+
+## 根拠レポートで原本を照合する
+
+引用付き回答の下にある「根拠レポートを保存」を押すと、質問・回答・引用位置・抽出本文・原本の SHA-256 が一つの HTML にまとまります。受け取った人はブラウザーで開き、手元の資料と照合できます。
+
+```powershell
+Get-FileHash -Algorithm SHA256 -LiteralPath '資料.pdf'
+```
+
+ハッシュが一致すれば、手元のファイルは保存時の原本と同じ内容です。回答が原文に沿っているかは、レポートが示す箇所を読んで確認できます。
+
+## データの保存先と実行デバイス
+
+ノートブック、原本、モデルはローカルに保存されます。標準の保存先は、旧版との互換性のため `%LOCALAPPDATA%\NotebookForAIPC` です。Microsoft Store 版 Python が別の場所に作った既存のノートブックも検出できます。
+
+既定では対応する Intel GPU を優先し、使用できない場合は CPU で実行します。起動前に `$env:NOTEBOOK_DEVICE = 'CPU'` とすると CPU に固定できます。 `'NPU'` を指定した場合、資料検索用の処理で Intel NPU を優先します。回答・要約の生成には GPU または CPU を使います。
+
+## 開発とライセンス
 
 ```powershell
 .\.venv\Scripts\python.exe -m unittest -v
 .\.venv\Scripts\python.exe make_source_release.py
 ```
 
-公開対象は `dist\Yomiquill-source.zip` です。モデル・依存ライブラリ・フォント・旧テストPDF・作業ダッシュボードを含みません。テストは架空の研修PDFを実行時に生成し、複数ページにまたがる料金計算と引用を検証します。
-新しい公開リポジトリを作る場合は、このソースZIPを展開したフォルダーを最初のコミットに使ってください。旧リポジトリの履歴にはフォントを埋め込んだ旧テストPDFが残っています。
+公開用の `dist\Yomiquill-source.zip` にはアプリのソースと文書だけが入ります。ローカルで Windows 実行ファイルを検証する場合は、同じ仮想環境に `pyinstaller==6.22.3` を入れ、`.\build.ps1 -LocalOnly` を実行します。
 
-ローカルでWindows実行ファイルを試す場合は、次の手順で `dist\Yomiquill-local-win-x64.zip` を作成できます。このZIPはローカル検証用です。
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install pyinstaller==6.22.3
-.\build.ps1 -LocalOnly
-```
-
-本プロジェクトのソースは [MITライセンス](LICENSE) です。依存関係とモデルについては [第三者ライセンス](THIRD_PARTY_NOTICES.md) を参照してください。
+ソースは [MIT ライセンス](LICENSE)です。依存ライブラリとモデルの条件は [第三者ライセンス](THIRD_PARTY_NOTICES.md)を参照してください。
