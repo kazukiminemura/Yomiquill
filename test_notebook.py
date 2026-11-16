@@ -103,6 +103,29 @@ class NotebookTest(unittest.TestCase):
                 self.assertEqual(store.ask(book, "受付は何曜日？", [document]), "受付は月曜日です。")
                 self.assertEqual(sum(call.args[0] == ["受付は月曜日です。"] for call in embed.call_args_list), 1)
 
+    def test_pdf_example_summarizes_the_named_checked_document_with_page_references(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            pdf = root / "XD3914.pdf"
+            synthetic_training_pdf(pdf)
+            other = root / "other.txt"
+            other.write_text("別の資料です。", encoding="utf-8")
+            model = Model()
+            store = Notebook(root / "test.sqlite3", model)
+            book = store.create("資料")
+            document = store.import_file(book, pdf, defer_index=True)
+            preferred = store.import_file(book, other, defer_index=True)
+            question = "「XD3914.pdf」の要点と参照ページを教えて"
+            with patch.object(model, "embed", side_effect=AssertionError("要約には検索を使わない")):
+                self.assertNotEqual(store.ask(book, question, [preferred, document], preferred=preferred), NO_EVIDENCE)
+                _, saved_question, _, refs = store.history(book)[-1]
+                self.assertEqual(saved_question, question)
+                self.assertTrue(refs)
+                self.assertEqual(store.cited_documents(book, refs), {document})
+                self.assertEqual(store.citation(book, refs[0])[1], "1 ページ")
+                self.assertEqual(store.ask(book, question, [preferred]), NO_EVIDENCE)
+                self.assertNotEqual(store.ask(book, "何ができるのか？", [document]), NO_EVIDENCE)
+
     def test_ocr_summary_preserves_section_boundaries_and_diagram_labels(self):
         headings = (
             "見出し（コントラスト補正）\n"

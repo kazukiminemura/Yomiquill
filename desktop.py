@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from hardware_usage import DEVICES, HardwareUsage
 from local_ai import APP_NAME, data_home
-from notebook_store import NO_EVIDENCE, Notebook, is_summary_request
+from notebook_store import NO_EVIDENCE, Notebook, summary_request
 
 
 IMPORTING = "資料を取り込み中"
@@ -566,7 +566,8 @@ class Window(QMainWindow):
         ):
             example = (
                 "その要約の要点を根拠と一緒に教えて"
-                if question.startswith("要約 · ") else "その回答の根拠になった箇所を引用して"
+                if question.startswith("要約 · ") or summary_request(question)
+                else "その回答の根拠になった箇所を引用して"
             )
         elif Path(name).suffix.lower() in {".xlsx", ".csv", ".tsv"}:
             example = f"「{name}」の表の主な項目を教えて"
@@ -767,13 +768,10 @@ class Window(QMainWindow):
             return
         notebook = self.active
         selected = self.checked_documents()
-        wants_summary = is_summary_request(question)
         document = self.current_id(self.docs)
-        if wants_summary and document in selected:
-            self.start_job(SUMMARIZING, lambda: self.store.summarize(notebook, document, question=question))
-        elif selected:
-            label = SUMMARIZING if wants_summary else ANSWERING
-            self.start_job(label, lambda: self.store.ask(notebook, question, selected))
+        if selected:
+            label = SUMMARIZING if summary_request(question) else ANSWERING
+            self.start_job(label, lambda: self.store.ask(notebook, question, selected, preferred=document))
         else:
             self.sources_toggle.setChecked(True)
             message = (

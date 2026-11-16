@@ -26,10 +26,13 @@ MONEY_QUESTION = re.compile(r"いくら|幾ら|何円|何万円|金額|料金を
 MONEY_VALUE = re.compile(r"(?<![\d,.])([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)(万円|千円|円|%)|無料")
 VISUAL_QUESTION = re.compile(r"画像|写真|イラスト|ステッカー|絵柄|マスコット|見た目")
 SUMMARY_REQUEST = re.compile(
+    r"(?:「(?P<filename>[^」]+)」の)?"
     r"(?:(?:この)?(?:資料|文書|ファイル|画像|内容)(?:の内容)?を)?"
     r"(?:要約(?:して(?:ください)?|をお願い(?:します)?|お願いします)?|"
     r"まとめて(?:ください)?|概要(?:を(?:教えて(?:ください)?|お願い(?:します)?))?|"
-    r"内容を(?:説明して|教えて)(?:ください)?)"
+    r"内容を(?:説明して|教えて)(?:ください)?|"
+    r"要点(?:と参照ページ)?を教えて(?:ください)?|"
+    r"何ができる(?:のか|の)?)"
 )
 OCR_HEADINGS = "見出し（コントラスト補正）\n"
 OCR_BODY = "\n\nページ全体\n"
@@ -55,8 +58,8 @@ def canonical(text):
     return "".join(normalize("NFKC", text).split())
 
 
-def is_summary_request(question):
-    return SUMMARY_REQUEST.fullmatch(canonical(question).rstrip("。.!！?？")) is not None
+def summary_request(question):
+    return SUMMARY_REQUEST.fullmatch(canonical(question).rstrip("。.!！?？"))
 
 
 def readable_ocr(text):
@@ -570,11 +573,20 @@ class Notebook:
             )
         return answer
 
-    def ask(self, notebook, question, selected):
+    def ask(self, notebook, question, selected, preferred=None):
         names = dict(self.documents(notebook))
         states = self.document_states(notebook)
         sources = [key for key in dict.fromkeys(selected) if states.get(key) in {"text", "ocr", "image", "scan"}]
-        if is_summary_request(question) and sources:
+        request = summary_request(question)
+        if request and sources:
+            filename = request["filename"]
+            if filename:
+                matching = [key for key in sources if canonical(names[key]).casefold() == filename.casefold()]
+                if len(matching) != 1:
+                    return self.save_answer(notebook, question, NO_EVIDENCE, [])
+                return self.answer_sources(notebook, question, matching)
+            if preferred in sources:
+                return self.summarize(notebook, preferred, question=question)
             return self.answer_sources(notebook, question, sources)
         images = [key for key in sources if states[key] == "image"]
         query_name = canonical(question).casefold()
@@ -753,5 +765,5 @@ class Notebook:
         name = dict(self.documents(notebook)).get(document)
         if name is None:
             raise ValueError("要約する資料が見つかりません。")
-        label = "要約" if question is None or is_summary_request(question) else question
+        label = "要約" if question is None or summary_request(question) else question
         return self.answer_sources(notebook, f"{label} · {name}", [document])
