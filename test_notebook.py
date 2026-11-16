@@ -1,8 +1,13 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
+import venv
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
+from shutil import copyfile
 from unittest.mock import patch
 from zipfile import ZipFile
 
@@ -49,6 +54,27 @@ class Model:
 
 
 class NotebookTest(unittest.TestCase):
+    @unittest.skipUnless(
+        sys.platform == "win32" and sys.version_info[:2] == (3, 12) and sys.maxsize > 2**32,
+        "Yomiquill launcher requires Windows and 64-bit Python 3.12",
+    )
+    def test_launcher_repairs_virtual_environment_without_pip(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            python = root / ".venv" / "Scripts" / "python.exe"
+            venv.EnvBuilder(with_pip=False).create(root / ".venv")
+            copyfile(Path(__file__).with_name("start.py"), root / "start.py")
+            # Exercise bootstrap itself without fetching wheels or model weights.
+            (root / "requirements.txt").touch()
+            (root / "setup_models.py").write_text("def prepare_models(): pass\n", encoding="utf-8")
+            environment = {**os.environ, "PIP_NO_INDEX": "1", "PIP_CONFIG_FILE": os.devnull}
+            result = subprocess.run(
+                [str(python), "-X", "utf8", str(root / "start.py"), "--setup-only"],
+                cwd=root, env=environment, capture_output=True, encoding="utf-8", timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue((root / ".venv" / ".yomiquill-requirements").is_file())
+
     def test_deferred_import_can_be_summarized_then_indexed_on_next_question(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
