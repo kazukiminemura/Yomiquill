@@ -295,8 +295,11 @@ class NotebookTest(unittest.TestCase):
             reopened = Notebook(root / "data.db", Model())
             citation = reopened.history(first)[-1][3][0]
             self.assertEqual(reopened.citation(first, citation)[2], "受付は月曜日です。")
+            self.assertEqual(reopened.cited_documents(first, [citation]), {document})
+            self.assertEqual(reopened.cited_documents(second, [citation]), set())
             reopened.delete_document(first, document)
             self.assertIsNone(reopened.citation(first, citation))
+            self.assertEqual(reopened.cited_documents(first, [citation]), set())
 
     def test_invalid_citation_is_not_saved_as_evidence(self):
         class InvalidCitation(Model):

@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 
 from hardware_usage import DEVICES, HardwareUsage
 from local_ai import APP_NAME, data_home
-from notebook_store import Notebook, is_summary_request
+from notebook_store import NO_EVIDENCE, Notebook, is_summary_request
 
 
 IMPORTING = "資料を取り込み中"
@@ -74,19 +74,19 @@ class ExampleComposer(QPlainTextEdit):
     def __init__(self):
         super().__init__()
         self.setTabChangesFocus(True)
-        self.set_example("要約して")
+        self.set_example(None, "質問に使う資料を追加してください。")
 
-    def set_example(self, example):
+    def set_example(self, example, hint=""):
         self.example = example
-        self.setPlaceholderText(f"Tab で例文を入力：{example}")
-        self.setAccessibleDescription(f"空欄で Tab を押すと「{example}」を入力します。")
+        self.setPlaceholderText(f"Tab で例文を入力：{example}" if example else hint)
+        self.setAccessibleDescription(f"空欄で Tab を押すと「{example}」を入力します。" if example else hint)
 
     def event(self, event):
         if (
             event.type() == QEvent.Type.KeyPress
             and event.key() == Qt.Key.Key_Tab
             and event.modifiers() == Qt.KeyboardModifier.NoModifier
-            and self.isEnabled() and not self.isReadOnly() and not self.toPlainText()
+            and self.example and self.isEnabled() and not self.isReadOnly() and not self.toPlainText()
         ):
             self.insertPlainText(self.example)
             return True
@@ -211,6 +211,8 @@ class Window(QMainWindow):
         self.preview_has_original = False
         self.drafts = {}
         self.excluded = set()
+        self.last_exchange = None
+        self.last_cited_sources = set()
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(2)
         self.setWindowTitle(APP_NAME)
@@ -395,6 +397,8 @@ class Window(QMainWindow):
         if self.active is not None:
             self.drafts[self.active] = self.composer.toPlainText()
         self.active = current.data(Qt.ItemDataRole.UserRole) if current else None
+        self.last_exchange = None
+        self.last_cited_sources = set()
         self.title.setText(current.text() if current else "ノートブック")
         self.composer.setPlainText(self.drafts.get(self.active, ""))
         self.load_documents()
@@ -436,6 +440,11 @@ class Window(QMainWindow):
 
     def render_history(self):
         rows = self.store.history(self.active)
+        latest = rows[-1] if rows else None
+        if latest != self.last_exchange:
+            self.last_exchange = latest
+            self.last_cited_sources = self.store.cited_documents(self.active, latest[3]) if latest else set()
+        self.update_example()
         progress = [
             job.progress_text for job in (self.job, self.import_job)
             if job is not None and job.notebook == self.active
@@ -474,7 +483,6 @@ class Window(QMainWindow):
         state = self.source_states.get(self.current_id(self.docs))
         document = state is not None
         self.composer.setEnabled(active)
-        self.composer.set_example("画像について説明して" if state == "image" else "要約して")
         self.rename_button.setEnabled(active)
         self.delete_button.setEnabled(active and free)
         self.add_button.setEnabled(active and can_import)
@@ -515,6 +523,60 @@ class Window(QMainWindow):
             self.excluded.discard(key)
         else:
             self.excluded.add(key)
+        self.update_example()
+
+    def checked_documents(self):
+        return [
+            key for key, state in self.source_states.items()
+            if key not in self.excluded and state != "attachment"
+        ]
+
+    def update_example(self):
+        checked = self.checked_documents()
+        if not checked:
+            hint = (
+                "質問に使う資料にチェックしてください。"
+                if any(state != "attachment" for state in self.source_states.values())
+                else "質問に使う資料を追加してください。"
+            )
+            self.composer.set_example(None, hint)
+            return
+        item = self.docs.currentItem()
+        key = self.current_id(self.docs)
+        if key not in checked:
+            item = next(
+                (self.docs.item(row) for row in range(self.docs.count())
+                 if self.docs.item(row).data(Qt.ItemDataRole.UserRole) == checked[0]),
+                None,
+            ) if len(checked) == 1 else None
+            key = checked[0] if item is not None else None
+        name = item.data(SOURCE_NAME_ROLE) if item is not None else ""
+        state = self.source_states.get(key)
+        question, answer = self.last_exchange[1:3] if self.last_exchange else ("", "")
+        if state == "image":
+            described = answer != NO_EVIDENCE and (
+                answer.startswith(name + "\n") or question == f"要約 · {name}"
+            )
+            subject = f"「{name}」" if len(checked) > 1 else "画像"
+            example = f"{subject}に写っている文字を教えて" if described else f"{subject}について説明して"
+        elif (
+            answer and answer != NO_EVIDENCE and self.last_cited_sources
+            and self.last_cited_sources.issubset(checked)
+            and (key is None or key in self.last_cited_sources)
+        ):
+            example = (
+                "その要約の要点を根拠と一緒に教えて"
+                if question.startswith("要約 · ") else "その回答の根拠になった箇所を引用して"
+            )
+        elif Path(name).suffix.lower() in {".xlsx", ".csv", ".tsv"}:
+            example = f"「{name}」の表の主な項目を教えて"
+        elif state == "scan":
+            example = f"「{name}」を読み取り、重要な点を教えて"
+        elif Path(name).suffix.lower() == ".pdf":
+            example = f"「{name}」の要点と参照ページを教えて"
+        else:
+            example = "要約して"
+        self.composer.set_example(example)
 
     def show_document(self, current=None, previous=None):
         selected = self.docs.currentItem()
@@ -556,6 +618,7 @@ class Window(QMainWindow):
             self.preview.setPlainText(excerpt)
             self.preview.setVisible(bool(excerpt))
             self.source_hint.setText(hint)
+        self.update_example()
         self.update_controls()
 
     def show_citation(self, url):
@@ -703,10 +766,7 @@ class Window(QMainWindow):
             QMessageBox.information(self, "質問", "質問は2,000文字以内で入力してください。")
             return
         notebook = self.active
-        selected = [
-            key for key, state in self.source_states.items()
-            if key not in self.excluded and state != "attachment"
-        ]
+        selected = self.checked_documents()
         wants_summary = is_summary_request(question)
         document = self.current_id(self.docs)
         if wants_summary and document in selected:

@@ -494,6 +494,18 @@ class Notebook:
                 JOIN documents d ON p.document = d.id WHERE d.notebook = ? AND p.id = ?
             """, (notebook, passage)).fetchone()
 
+    def cited_documents(self, notebook, passages):
+        ids = set(passages)
+        if not ids:
+            return set()
+        with self.database() as db:
+            rows = db.execute("""
+                SELECT p.id, d.id FROM passages p
+                JOIN documents d ON d.id = p.document
+                WHERE d.notebook = ? AND p.id IN (SELECT value FROM json_each(?))
+            """, (notebook, json.dumps(list(ids)))).fetchall()
+        return {document for _, document in rows} if len(rows) == len(ids) else set()
+
     def history(self, notebook, limit=-1):
         with self.database() as db:
             rows = db.execute(
