@@ -2,7 +2,7 @@ import sys
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QIODevice, QObject, QRectF, QRunnable, QSaveFile, Qt, QThreadPool, Signal, Slot
+from PySide6.QtCore import QEvent, QIODevice, QObject, QRectF, QRunnable, QSaveFile, Qt, QThreadPool, QTimer, Signal, Slot
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel,
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QPushButton, QSplitter, QTextBrowser, QVBoxLayout, QWidget,
 )
 
+from hardware_usage import DEVICES, HardwareUsage
 from local_ai import APP_NAME, data_home
 from notebook_store import Notebook, is_summary_request
 
@@ -29,6 +30,7 @@ SOURCE_NAME_ROLE = Qt.ItemDataRole.UserRole + 1
 STYLE = """
 QWidget { background: #191b20; color: #ecedf2; font-size: 14px; }
 QFrame#appHeader { background: #202329; border: 1px solid #30343d; border-radius: 12px; }
+QFrame#hardwareUsage { background: #202329; border: 1px solid #30343d; border-radius: 8px; }
 QLabel#appName { font-size: 17px; font-weight: 600; }
 QPushButton[panelToggle="true"] {
     min-height: 34px; padding: 0 12px; background: transparent;
@@ -66,6 +68,54 @@ QPushButton[primary="true"]:hover { background: #bfd0ff; }
 QPushButton[primary="true"]:disabled { background: #373e50; color: #a1a8b8; }
 QSplitter::handle { background: #191b20; }
 """
+
+
+class ExampleComposer(QPlainTextEdit):
+    def __init__(self):
+        super().__init__()
+        self.setTabChangesFocus(True)
+        self.set_example("要約して")
+
+    def set_example(self, example):
+        self.example = example
+        self.setPlaceholderText(f"Tab で例文を入力：{example}")
+        self.setAccessibleDescription(f"空欄で Tab を押すと「{example}」を入力します。")
+
+    def event(self, event):
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.key() == Qt.Key.Key_Tab
+            and event.modifiers() == Qt.KeyboardModifier.NoModifier
+            and self.isEnabled() and not self.isReadOnly() and not self.toPlainText()
+        ):
+            self.insertPlainText(self.example)
+            return True
+        return super().event(event)
+
+
+class UsageBar(QWidget):
+    def __init__(self, device, color):
+        super().__init__()
+        self.device = device
+        self.color = QColor(color)
+        self.level = 0
+        self.setFixedSize(88, 11)
+        self.set_usage(None)
+
+    def set_usage(self, value):
+        text = "取得不可" if value is None else f"{value}%"
+        self.setAccessibleName(f"{self.device} 使用率 {text}")
+        self.level = 0 if value is None else (value + 9) // 10
+        self.update()
+
+    def paintEvent(self, event):
+        with QPainter(self) as painter:
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setPen(Qt.PenStyle.NoPen)
+            step = (self.width() + 2) / 10
+            for index in range(10):
+                painter.setBrush(self.color if index < self.level else QColor("#596374"))
+                painter.drawRoundedRect(QRectF(index * step, 1, step - 2, self.height() - 2), 2, 2)
 
 
 class JobSignals(QObject):
@@ -222,9 +272,8 @@ class Window(QMainWindow):
         self.transcript.setOpenLinks(False)
         self.transcript.anchorClicked.connect(self.show_citation)
         chat.addWidget(self.transcript, 1)
-        self.composer = QPlainTextEdit()
+        self.composer = ExampleComposer()
         self.composer.setAccessibleName("質問")
-        self.composer.setPlaceholderText("例：要約して、画像について説明して")
         self.composer.setMaximumHeight(90)
         self.composer.textChanged.connect(self.update_controls)
         chat.addWidget(self.composer)
@@ -295,6 +344,31 @@ class Window(QMainWindow):
         self.status.setProperty("muted", True)
         self.status.setTextFormat(Qt.TextFormat.PlainText)
         root.addWidget(self.status)
+        hardware = QFrame()
+        hardware.setObjectName("hardwareUsage")
+        meters = QHBoxLayout(hardware)
+        meters.setContentsMargins(10, 6, 10, 6)
+        meters.setSpacing(8)
+        label = QLabel("PC全体の使用率")
+        label.setProperty("muted", True)
+        meters.addWidget(label)
+        meters.addStretch(1)
+        self.usage_meters = {}
+        for device, color in zip(DEVICES, ("#a5bdff", "#88d9c9", "#d7b4fa"), strict=True):
+            bar = UsageBar(device, color)
+            value = QLabel("測定中")
+            value.setMinimumWidth(value.fontMetrics().horizontalAdvance("取得不可"))
+            meters.addWidget(QLabel(device))
+            meters.addWidget(bar)
+            meters.addWidget(value)
+            self.usage_meters[device] = bar, value
+            meters.addStretch(1)
+        root.addWidget(hardware)
+        self.hardware_usage = HardwareUsage()
+        self.destroyed.connect(self.hardware_usage.close)
+        self.usage_timer = QTimer(self)
+        self.usage_timer.timeout.connect(self.update_hardware_usage)
+        self.usage_timer.start(1000)
         self.load_books()
         dark_caption(self)
 
@@ -400,6 +474,7 @@ class Window(QMainWindow):
         state = self.source_states.get(self.current_id(self.docs))
         document = state is not None
         self.composer.setEnabled(active)
+        self.composer.set_example("画像について説明して" if state == "image" else "要約して")
         self.rename_button.setEnabled(active)
         self.delete_button.setEnabled(active and free)
         self.add_button.setEnabled(active and can_import)
@@ -711,11 +786,20 @@ class Window(QMainWindow):
             dialog.setText(error)
             dialog.exec()
 
+    def update_hardware_usage(self):
+        for device, sample in self.hardware_usage.sample().items():
+            bar, label = self.usage_meters[device]
+            value = None if sample is None else round(sample)
+            bar.set_usage(value)
+            label.setText("取得不可" if value is None else f"{value}%")
+
     def closeEvent(self, event):
         if self.job is not None or self.import_job is not None:
             self.status.setText("処理が完了してからウィンドウを閉じてください。")
             event.ignore()
         else:
+            self.usage_timer.stop()
+            self.hardware_usage.close()
             super().closeEvent(event)
 
 

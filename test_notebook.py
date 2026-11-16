@@ -14,6 +14,7 @@ from zipfile import ZipFile
 from pypdf import PdfWriter
 from pypdf.generic import DecodedStreamObject, DictionaryObject, NameObject
 
+from hardware_usage import adapter_loads
 from local_ai import ModelNotInstalled, OpenVINOModel, data_home
 from notebook_store import Notebook, NO_EVIDENCE, summarize_ocr_layout
 
@@ -54,6 +55,17 @@ class Model:
 
 
 class NotebookTest(unittest.TestCase):
+    def test_hardware_usage_combines_processes_per_engine_and_separates_npu(self):
+        gpu, npu = "0x00000000_0x000100a6", "0x00000000_0x000100b0"
+        samples = [
+            (f"pid_11_luid_{gpu}_phys_0_eng_0_engtype_3d", 28),
+            (f"pid_12_luid_{gpu}_phys_0_eng_0_engtype_3d", 32),
+            (f"pid_11_luid_{gpu}_phys_0_eng_1_engtype_compute", 41),
+            (f"pid_11_luid_{npu}_phys_0_eng_0_engtype_compute", 37),
+        ]
+        self.assertEqual(adapter_loads(samples, {gpu: "GPU", npu: "NPU"}), {"GPU": 60, "NPU": 37})
+        self.assertEqual(adapter_loads(samples, {gpu: "GPU"}), {"GPU": 60, "NPU": None})
+
     @unittest.skipUnless(
         sys.platform == "win32" and sys.version_info[:2] == (3, 12) and sys.maxsize > 2**32,
         "Yomiquill launcher requires Windows and 64-bit Python 3.12",
