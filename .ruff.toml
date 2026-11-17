@@ -1,0 +1,12 @@
+[lint]
+extend-select = ["TID251"]
+
+[lint.flake8-tidy-imports.banned-api]
+"PySide6.QtWidgets".msg = "ウィジェット操作は desktop.py または desktop_widgets.py に置いてください。"
+"desktop".msg = "desktop はアプリの入口です。資料処理は document_readers、回答の検証は answer_validation を使ってください。"
+"desktop_widgets".msg = "画面のウィジェットは desktop.py から組み立ててください。"
+
+[lint.per-file-ignores]
+"desktop.py" = ["TID251"]
+"desktop_widgets.py" = ["TID251"]
+"test_*.py" = ["TID251"]

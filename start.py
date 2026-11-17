@@ -20,6 +20,19 @@ def run_python(*args):
     subprocess.run([str(PYTHON), *map(str, args)], cwd=ROOT, check=True)
 
 
+def install_dependencies():
+    signature = sha256(REQUIREMENTS.read_bytes()).hexdigest()
+    stamp = VENV / ".yomiquill-requirements"
+    installed = stamp.is_file() and stamp.read_text(encoding="ascii").strip() == signature
+    if not installed or any(importlib.util.find_spec(module) is None for module in MODULES):
+        if importlib.util.find_spec("pip") is None:
+            print("[1/3] 仮想環境の pip を復旧しています…", flush=True)
+            run_python("-m", "ensurepip")
+        print("[1/3] 必要なライブラリをインストールしています…", flush=True)
+        run_python("-m", "pip", "--disable-pip-version-check", "install", "-r", REQUIREMENTS)
+        stamp.write_text(signature + "\n", encoding="ascii")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Yomiquill のセットアップと起動")
     parser.add_argument("--setup-only", action="store_true", help="準備だけ実行します")
@@ -34,17 +47,7 @@ def main():
         run_python(__file__, *sys.argv[1:])
         return
 
-    signature = sha256(REQUIREMENTS.read_bytes()).hexdigest()
-    stamp = VENV / ".yomiquill-requirements"
-    installed = stamp.is_file() and stamp.read_text(encoding="ascii").strip() == signature
-    if not installed or any(importlib.util.find_spec(module) is None for module in MODULES):
-        if importlib.util.find_spec("pip") is None:
-            print("[1/3] 仮想環境の pip を復旧しています…", flush=True)
-            run_python("-m", "ensurepip")
-        print("[1/3] 必要なライブラリをインストールしています…", flush=True)
-        run_python("-m", "pip", "--disable-pip-version-check", "install", "-r", REQUIREMENTS)
-        stamp.write_text(signature + "\n", encoding="ascii")
-
+    install_dependencies()
     from setup_models import prepare_models
 
     prepare_models()

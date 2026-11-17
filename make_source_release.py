@@ -5,8 +5,9 @@ from zipfile import ZIP_DEFLATED, ZipFile
 
 
 SOURCE_FILES = (
-    ".gitignore", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md",
-    "build.ps1", "desktop.py", "hardware_usage.py", "local_ai.py", "local_pdf.py", "local_vision.py",
+    ".gitignore", ".ruff.toml", "LICENSE", "README.md", "THIRD_PARTY_NOTICES.md",
+    "answer_validation.py", "build.ps1", "desktop.py", "desktop_jobs.py", "desktop_widgets.py",
+    "document_readers.py", "hardware_usage.py", "local_ai.py", "local_pdf.py", "local_vision.py",
     "make_source_release.py", "notebook_store.py", "question_intent.py", "requirements.txt",
     "setup_models.py", "start.py", "Start-Yomiquill.cmd", "test_notebook.py",
 )

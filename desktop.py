@@ -2,24 +2,22 @@ import sys
 from html import escape
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QIODevice, QObject, QRectF, QRunnable, QSaveFile, Qt, QThreadPool, QTimer, Signal, Slot
-from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QPixmap, QShortcut, QTextCursor
+from PySide6.QtCore import QIODevice, QSaveFile, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtGui import QFont, QKeySequence, QPixmap, QShortcut, QTextCursor
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel,
     QListWidget, QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit,
     QPushButton, QSplitter, QTextBrowser, QVBoxLayout, QWidget,
 )
 
+from desktop_jobs import ANSWERING, IMPORTING, REREADING, SUMMARIZING, Job
+from desktop_widgets import STYLE, ExampleComposer, UsageBar, app_icon, button, dark_caption, heading, panel
 from hardware_usage import DEVICES, HardwareUsage
 from local_ai import APP_NAME, data_home
 from notebook_store import NO_EVIDENCE, Notebook
 from question_intent import summary_request
 
 
-IMPORTING = "資料を取り込み中"
-SUMMARIZING = "資料を要約中"
-ANSWERING = "回答を生成中"
-REREADING = "スキャンしたページを読み取り中"
 SOURCE_LABELS = {
     "text": "本文あり",
     "image": "画像を要約できます",
@@ -28,174 +26,6 @@ SOURCE_LABELS = {
     "attachment": "元ファイルのみ",
 }
 SOURCE_NAME_ROLE = Qt.ItemDataRole.UserRole + 1
-STYLE = """
-QWidget { background: #191b20; color: #ecedf2; font-size: 14px; }
-QFrame#appHeader { background: #202329; border: 1px solid #30343d; border-radius: 12px; }
-QFrame#hardwareUsage { background: #202329; border: 1px solid #30343d; border-radius: 8px; }
-QLabel#appName { font-size: 17px; font-weight: 600; }
-QPushButton[panelToggle="true"] {
-    min-height: 34px; padding: 0 12px; background: transparent;
-    border: 1px solid transparent; border-radius: 7px; color: #c8d0de;
-}
-QPushButton[panelToggle="true"]:checked { background: #303c53; color: #e3ebff; }
-QPushButton[panelToggle="true"]:hover { background: #343f53; }
-QPushButton[panelToggle="true"]:pressed { background: #41516b; }
-QPushButton[panelToggle="true"]:focus { border-color: #9cb7ff; }
-QFrame[panel="true"] { background: #202329; border: 1px solid #30343d; border-radius: 12px; }
-QLabel, QCheckBox { background: transparent; }
-QLabel[heading="true"] { font-size: 19px; font-weight: bold; }
-QLabel[muted="true"] { color: #abb4c3; }
-QListWidget, QTextBrowser, QPlainTextEdit {
-    background: #191b20; border: 1px solid #383d47; border-radius: 8px; padding: 6px;
-    selection-background-color: #33486e;
-}
-QListWidget::item { padding: 7px 4px; }
-QListWidget::item:selected { background: #33486e; color: #fff; border-radius: 4px; }
-QListWidget#sourceList::item { padding: 4px; }
-QScrollBar:vertical { width: 10px; background: transparent; margin: 2px 0; }
-QScrollBar::handle:vertical { min-height: 28px; background: #555e6f; border-radius: 4px; }
-QScrollBar::handle:vertical:hover { background: #758099; }
-QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
-QPushButton {
-    background: #282d36; border: 1px solid #3b4352; border-radius: 7px;
-    padding: 7px 10px;
-}
-QPushButton:hover { background: #323b4b; }
-QPushButton:focus, QListWidget:focus, QPlainTextEdit:focus { border-color: #9cb7ff; }
-QPushButton:disabled { color: #808a9b; }
-QPushButton[primary="true"] { background: #a5bdff; color: #151b2c; font-weight: bold; }
-QPushButton[primary="true"]:hover { background: #bfd0ff; }
-QPushButton[primary="true"]:disabled { background: #373e50; color: #a1a8b8; }
-QSplitter::handle { background: #191b20; }
-"""
-
-
-class ExampleComposer(QPlainTextEdit):
-    def __init__(self):
-        super().__init__()
-        self.setTabChangesFocus(True)
-        self.set_example(None, "質問に使う資料を追加してください。")
-
-    def set_example(self, example, hint=""):
-        self.example = example
-        self.setPlaceholderText(f"Tab で例文を入力：{example}" if example else hint)
-        self.setAccessibleDescription(f"空欄で Tab を押すと「{example}」を入力します。" if example else hint)
-
-    def event(self, event):
-        if (
-            event.type() == QEvent.Type.KeyPress
-            and event.key() == Qt.Key.Key_Tab
-            and event.modifiers() == Qt.KeyboardModifier.NoModifier
-            and self.example and self.isEnabled() and not self.isReadOnly() and not self.toPlainText()
-        ):
-            self.insertPlainText(self.example)
-            return True
-        return super().event(event)
-
-
-class UsageBar(QWidget):
-    def __init__(self, device, color):
-        super().__init__()
-        self.device = device
-        self.color = QColor(color)
-        self.level = 0
-        self.setFixedSize(88, 11)
-        self.set_usage(None)
-
-    def set_usage(self, value):
-        text = "取得不可" if value is None else f"{value}%"
-        self.setAccessibleName(f"{self.device} 使用率 {text}")
-        self.level = 0 if value is None else (value + 9) // 10
-        self.update()
-
-    def paintEvent(self, event):
-        with QPainter(self) as painter:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setPen(Qt.PenStyle.NoPen)
-            step = (self.width() + 2) / 10
-            for index in range(10):
-                painter.setBrush(self.color if index < self.level else QColor("#596374"))
-                painter.drawRoundedRect(QRectF(index * step, 1, step - 2, self.height() - 2), 2, 2)
-
-
-class JobSignals(QObject):
-    finished = Signal(int, str, object, str)
-
-
-class Job(QRunnable):
-    def __init__(self, notebook, label, action):
-        super().__init__()
-        self.notebook = notebook
-        self.label = label
-        self.progress_text = "要約を生成中…" if label == SUMMARIZING else label + "…"
-        self.action = action
-        self.signals = JobSignals()
-
-    def run(self):
-        try:
-            result = self.action()
-        except Exception as error:
-            self.signals.finished.emit(self.notebook, self.label, None, str(error) or type(error).__name__)
-        else:
-            self.signals.finished.emit(self.notebook, self.label, result, "")
-
-
-def heading(text):
-    label = QLabel(text)
-    label.setProperty("heading", True)
-    label.setTextFormat(Qt.TextFormat.PlainText)
-    return label
-
-
-def button(text, callback, primary=False):
-    control = QPushButton(text)
-    control.setProperty("primary", primary)
-    control.clicked.connect(callback)
-    return control
-
-
-def panel():
-    frame = QFrame()
-    frame.setProperty("panel", True)
-    box = QVBoxLayout(frame)
-    box.setContentsMargins(14, 14, 14, 14)
-    box.setSpacing(10)
-    return frame, box
-
-
-def app_icon():
-    mark = QPixmap(64, 64)
-    mark.fill(Qt.GlobalColor.transparent)
-    with QPainter(mark) as painter:
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.scale(2, 2)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor("#a5bdff"))
-        painter.drawRoundedRect(QRectF(0, 0, 32, 32), 8, 8)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#202b47"), 1.6))
-        painter.drawRoundedRect(QRectF(9, 7, 14, 18), 2, 2)
-        painter.drawLine(13, 7, 13, 25)
-        painter.drawLine(16, 12, 20, 12)
-        painter.drawLine(16, 16, 20, 16)
-    return QIcon(mark)
-
-
-def dark_caption(window):
-    if sys.platform != "win32":
-        return
-    from ctypes import byref, sizeof, windll
-    from ctypes.wintypes import BOOL, DWORD, HWND
-
-    hwnd = HWND(int(window.winId()))
-    set_attribute = windll.dwmapi.DwmSetWindowAttribute
-    # Keep native caption controls, window snapping and the system menu.
-    for attribute, value in (
-        (20, BOOL(True)),       # DWMWA_USE_IMMERSIVE_DARK_MODE
-        (35, DWORD(0x292320)),  # DWMWA_CAPTION_COLOR, 0x00BBGGRR
-    ):
-        set_attribute(hwnd, attribute, byref(value), sizeof(value))
 
 
 class Window(QMainWindow):
