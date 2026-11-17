@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
 
 from hardware_usage import DEVICES, HardwareUsage
 from local_ai import APP_NAME, data_home
-from notebook_store import NO_EVIDENCE, Notebook, summary_request
+from notebook_store import NO_EVIDENCE, Notebook
+from question_intent import summary_request
 
 
 IMPORTING = "資料を取り込み中"

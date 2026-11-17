@@ -72,6 +72,8 @@ Get-FileHash -Algorithm SHA256 -LiteralPath 'サンプル研修案内.txt'
 .\.venv\Scripts\python.exe make_source_release.py
 ```
 
+PDF 要約の動作確認では、本文を選択できる PDF を資料に追加してチェックを入れます。入力欄を空にして Tab を押し、ファイル名付きの例文を Ctrl+Enter で送信します。要約の下の参照リンクを開き、同じ PDF のページ番号と本文が表示されることを確認します。
+
 公開用の `dist\Yomiquill-source.zip` にはアプリのソースと文書だけが入ります。ローカルで Windows 実行ファイルを検証する場合は、同じ仮想環境に `pyinstaller==6.22.3` を入れ、`.\build.ps1 -LocalOnly` を実行します。
 
 ソースは [MIT ライセンス](LICENSE)です。依存ライブラリとモデルの条件は [第三者ライセンス](THIRD_PARTY_NOTICES.md)を参照してください。

@@ -9,7 +9,6 @@ from html import escape
 from io import BytesIO
 from math import dist, isfinite, sqrt
 from pathlib import Path
-from unicodedata import normalize
 from xml.etree import ElementTree
 from zipfile import BadZipFile, ZipFile
 
@@ -19,21 +18,13 @@ from pypdf.errors import PyPdfError
 
 from local_ai import ModelNotInstalled, OpenVINOModel
 from local_vision import IMAGE_EXTENSIONS
+from question_intent import SummaryRequest, canonical, summary_request
 
 
 NO_EVIDENCE = "選択した資料からは確認できません。"
 MONEY_QUESTION = re.compile(r"いくら|幾ら|何円|何万円|金額|料金を計算|(?:返金|支払|請求)額")
 MONEY_VALUE = re.compile(r"(?<![\d,.])([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)(万円|千円|円|%)|無料")
 VISUAL_QUESTION = re.compile(r"画像|写真|イラスト|ステッカー|絵柄|マスコット|見た目")
-SUMMARY_REQUEST = re.compile(
-    r"(?:「(?P<filename>[^」]+)」の)?"
-    r"(?:(?:この)?(?:資料|文書|ファイル|画像|内容)(?:の内容)?を)?"
-    r"(?:要約(?:して(?:ください)?|をお願い(?:します)?|お願いします)?|"
-    r"まとめて(?:ください)?|概要(?:を(?:教えて(?:ください)?|お願い(?:します)?))?|"
-    r"内容を(?:説明して|教えて)(?:ください)?|"
-    r"要点(?:と参照ページ)?を教えて(?:ください)?|"
-    r"何ができる(?:のか|の)?)"
-)
 OCR_HEADINGS = "見出し（コントラスト補正）\n"
 OCR_BODY = "\n\nページ全体\n"
 MATRIX_DIMENSIONS = re.compile(r"\[\s*([0-9][0-9 \t]*)\s*(?:><|[xX×])\s*([0-9][0-9 \t]*)\s*\]")
@@ -52,14 +43,6 @@ CALCULATION = object_schema(
     operation={"enum": ["none", "amount", "percent", "difference", "sum"]},
     operands={"type": "array", "items": {"type": "integer"}},
 )
-
-
-def canonical(text):
-    return "".join(normalize("NFKC", text).split())
-
-
-def summary_request(question):
-    return SUMMARY_REQUEST.fullmatch(canonical(question).rstrip("。.!！?？"))
 
 
 def readable_ocr(text):
@@ -579,15 +562,21 @@ class Notebook:
         sources = [key for key in dict.fromkeys(selected) if states.get(key) in {"text", "ocr", "image", "scan"}]
         request = summary_request(question)
         if request and sources:
-            filename = request["filename"]
-            if filename:
-                matching = [key for key in sources if canonical(names[key]).casefold() == filename.casefold()]
-                if len(matching) != 1:
-                    return self.save_answer(notebook, question, NO_EVIDENCE, [])
-                return self.answer_sources(notebook, question, matching)
-            if preferred in sources:
-                return self.summarize(notebook, preferred, question=question)
-            return self.answer_sources(notebook, question, sources)
+            return self._answer_summary_request(notebook, question, request, sources, names, preferred)
+        return self._answer_question(notebook, question, sources, names, states)
+
+    def _answer_summary_request(self, notebook, question, request: SummaryRequest, sources, names, preferred):
+        if request.filename:
+            filename = request.filename.casefold()
+            matching = [key for key in sources if canonical(names[key]).casefold() == filename]
+            if len(matching) != 1:
+                return self.save_answer(notebook, question, NO_EVIDENCE, [])
+            return self.answer_sources(notebook, question, matching)
+        if preferred in sources:
+            return self.summarize(notebook, preferred, question=question)
+        return self.answer_sources(notebook, question, sources)
+
+    def _answer_question(self, notebook, question, sources, names, states):
         images = [key for key in sources if states[key] == "image"]
         query_name = canonical(question).casefold()
         matched = [key for key in sources if canonical(Path(names[key]).stem).casefold() in query_name]
